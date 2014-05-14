@@ -1,3 +1,3 @@
 dspFRET
 =======
-Matlab code for analyzing TTTR data from symphoTime. Used in the analysis of single pair FRET measurements with pulsed interleaved excitation (PIE-FRET)
+Matlab code for analyzing TTTR data from PicoQuant. Typical application is analysis of single pair FRET measurements with pulsed interleaved excitation (PIE-FRET).
