@@ -4,7 +4,7 @@ Matlab code for analyzing TTTR data from PicoQuant. Typical application is analy
 
 File Structure
 ==============
-analyzePIE. Main analysis engine
-readHeader. Function that reads the header of a Symphotime TTTR binary file
-readCounts2. Speedup of over 100x from PicoQuant parser.
-calcMCS. calculates the MCS binning. Returns MCS data and the maps of photons into bins.
+- analyzePIE. Main analysis engine
+- readHeader. Function that reads the header of a Symphotime TTTR binary file
+- readCounts2. Speedup of over 100x from PicoQuant parser.
+- calcMCS. calculates the MCS binning. Returns MCS data and the maps of photons into bins.
