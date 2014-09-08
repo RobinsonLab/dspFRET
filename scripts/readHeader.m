@@ -1,4 +1,5 @@
 function [Records Resolution syncPeriod] = readHeader(inFile,logFile)
+% This function reads the header of a Symphotime TTTR binary file.
 
 Ident = char(fread(inFile, 16, 'char'));
 fprintf(logFile,'      Identifier: %s\n', Ident);

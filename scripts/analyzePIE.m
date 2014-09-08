@@ -1,56 +1,53 @@
 % FILENAME: analyzePIE.m, First Created on Jan. 04, 2012
 %
-% DESCRIPTION: This is the master file for reading in and processing a .pt3
-% file
+% REVISION HISTORY:
+%
+% Ver  Author   Date    Description 
+% ---  ------   ----    --------------------------------------------
+%   1   JMR     1/4/12  o Read in TTRT file
+%                       o PCH
+%                       o 2DFRET hist.
+
+%   2   JMR     6/8/12  o Lifetime anslysis of donor-only and donor-acceptor 
+%                       o put variables into data structures
+%                       o lots of comments
+%                       o maps for photon sorting into DD, DA, AA 
+%                       o maps for assigning photons to bins
+
+% DESCRIPTION: 
+% This is the master file for reading in and processing single molecuele FRET data
 %
 % DEPENDENT FILES: 
-%   readHeader
-%   readCounts2
+%   readHeader      reads in the header from a TTTR file
+%   readCounts2     reads the contents of a TTTR file
 %
 %
-% INPUT FILES15
-
+% INPUT FILES:
+% TTTR file in ../input
 % 
 %
-% OUTPUT FILES
+% OUTPUT FILES:
+%  ../output
 
+% 1) figures: 
+%
+%
+%
+%
+% 2) log file:
+% ../output/filename.log
+%
+%
 
-% INSTRUCTIONS:
-%   Set USER VARIABLES (filename, pathname) either using the gui or,
-%   preferably, by defining them explicitly. Your choice is registered
-%   using GUI_PREF
+% USER INSTRUCTIONS:
+%   Set PREFS and PARAMS
 
-% BACKGROUND INFORMATION
+% BACKGROUND INFORMATION:
 %
 %   Analyze the buffer first. This gives us the time gate thresholds (from 
 %   TCSPC) and an estimate of background counts (from MCS).
 
 
-% makeMCS.m
-% This script reads a PicoHarp 300 T3 Mode data file (*.pt3)
-% Works with file format version 2.0 only!
-
-% Tested with Matlab R2011b
-% John Robinson, SDSU, updated January 2012
-% this script was derived from read_pt3.m 
-% Peter Kapusta, Michael Wahl, PicoQuant GmbH 2007, updated May 2007
-
-% NOTES
-% Note that marker events have a lower time resolution and may therefore appear 
-% in the file slightly out of order with respect to regular (photon) event records.
-% This is by design. Markers are designed only for relatively coarse 
-% synchronization requirements such as image scanning. 
-
-% JMR: we don't care about markers
-
-% T3 Mode data are written to an output file [filename].out 
-% We do not keep it in memory because of the huge amout of memory
-% this would take in case of large files. Of course you can change this, 
-% e.g. if your files are not too big. 
-% Otherwise it is best process the data on the fly and keep only the results.
-
-% JMR: I have substantially rewritten read_pt3.m as the function readCounts2.
-% Time speed up is considerable. Memory is not an issue. 
 
 % BEFORE WE BEGIN
 
@@ -61,85 +58,171 @@ clc;
 % BEGIN
 
 % USER PREFERENCES 
+PREFS.GUI = 1; % 1 = true; 0 = false
 
-% $$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$
+% Render plots?
+PREFS.PLOT_VS_TIME = 1; % plot TCSPC vs (1) time & (0) channel #
+PREFS.COMMENT = 1; % add comments to graph. Supress for publication.
+PREFS.PLOT_PHOTON_COUNTING_HISTOGRAM = 0; % render the photon counting histograms
+PREFS.PLOT_BURST = 0;
+PREFS.PLOT_TCSPC = 0; %
+PREFS.PLOT_BURST_SEL = 0;
+PREFS.PLOT_1D_HIST = 1; % 
+PREFS.VERBOSE = 1; % write out what is going on.
 
-PLOT_VS_TIME = 0 % plot TCSPC vs (1) time & (0) channel #
-GUI_PREF = 1; % 1 = true; 0 = false
-COMMENT = 1; % add comments to graph. Supress for publication.
+% DEFAULT PARAMS
+PARAMS.INCLUDE_SCATTERING = 0; % includes scattering that is evident as the spike in the TCSPC histogram?
+PARAMS.BIN_TIME = 1.0; % in milliseconds
+PIE_MIN = 15;
+PARAMS.PIE_MAX = 70;
+NOISE_MIN = 10;
+PARAMS.NOISE_MAX = 70;
+%GAMMA = 2.1; %for Troponin (Cy3-Atto655)
+% PARAMS.GAMMA = 1.15; % for DNA (Cy3-Alexa647)
+PARAMS.GAMMA = 1.0; 
+PARAMS.NOT_RED = 3; % this is very tight. Used to identify a donor-only species. Want to make sure that acceptor is definately not there!
+PARAMS.NOT_GREEN = 3; % this is very tight. Used to identify a acceptor-only species. Want to make sure that donor is definately not there!
 
-%PLOTS
-PLOT_PHOTON_COUNTING_HISTOGRAM = 0; % render the photon counting histograms
-PLOT_BURST = 0;
-PLOT_TCSPC = 0; %
-PLOT_BURST_SEL = 0;
-PLOT_1D_HIST = 1; % 
+% PLOTTING PREFS
+PLOT_PREFS.NUM_BINS = 41;
+PLOT_PREFS.TE_LIM = [0.0 1.0];
+PLOT_PREFS.S_LIM = [0.0 1.0];
+% start = 200000; % or whatever....
+PLOT_PREFS.START = 10;
+PLOT_PREFS.LEN = 3000;
+PLOT_PREFS.LEN = (PLOT_PREFS.LEN + 1); %makes the plots prettier.
 
-% $$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$
+%
+% ================= READ input and set params ======================
+%
 
+%
+if (PREFS.GUI == 1)
 % Set filename and pathname using the GUI
-
-if (GUI_PREF == 1)
-    [filename, pathname]=uigetfile('*.pt3', 'T3 Mode data:');
+    [inFile.name, inFile.path]=uigetfile('*.pt3', 'T3 Mode data:');
 else
 % Set filename and pathname manually
-    %filename = 'D11A647(50pM PIE).pt3';
-    %pathname = '../input/';
+    inFile.name = 'D11A647(50pM PIE).pt3';
+    inFile.path = '../input/';
 end;
-inFile=fopen([pathname filename]);
-logFileName = [pathname filename(1:length(filename)-4) '.log'];
-logFile = fopen(logFileName,'W');
-fprintf(logFile,'Header from file: %s\n', filename);
-fprintf(logFile,'\n');
-[numRecords resolution syncPeriod] = readHeader(inFile, logFile);
-[Ddt Dtt Adt Att] = readCounts2(inFile, logFile, numRecords, resolution, syncPeriod);
-%[Ddt Dtt Adt Att] = readCounts2(inFile, logFile, 10000000, resolution, syncPeriod);
-fclose(inFile);
-fclose(logFile);
+inFile.base = inFile.name(1:length(inFile.name)-4);
+logFile.name = [inFile.path inFile.base '.log']; % note, this is how to cat strings
 
-%%
-% ANALYSIS-DEPENDENT USER VARIABLES 
+inFile.ptr = fopen([inFile.path inFile.name]);
+
+% >> write out the header
+logFile.ptr = fopen(logFile.name,'W');
+fprintf(logFile.ptr,'\n---------------------------------------------------------\n');
+fprintf(logFile.ptr,'>> Header from input file: %s\n', inFile.name);
+fprintf(logFile.ptr,'\n---------------------------------------------------------\n');
+[inFile.numRecords inFile.resolution inFile.syncPeriod] = readHeader(inFile.ptr, logFile.ptr);
+fclose(logFile.ptr);
+
+str = logFile.name
+diary(str);
+
+% >> get the photon events
+% inFile.numRecords = 100000; % use this when debugging
+[Dlc Dgt Alc Agt] = readCounts2(PREFS, inFile);
+fclose(inFile.ptr);
+% diary off;
+
+% Main data here......
+% For each count that is registered in the donor channel (spad), we have a local
+% time of that count (Dlc) and the global time of that count (Dgt). Dlc is
+% used for TCSPC and Dgt is used for MCS.
+
+% For each count that is registered in the acceptor channel (spad), we have a local
+% time of that count (Alc) and the global time of that count (Agt). Alc is
+% used for TCSPC and Agt is used for MCS. We need to further process Alc to
+% figure out whether the photon came from excitation with "green" laser (DA) or
+% from the "red" laser (AA). This processing will be done later.
+
+% Dlc, donor APD, local channel #
+% Dgt, donor APD, global time
+% Alc, acceptor APD, local channel #
+% Agt, acceptor APD, global time
+
+% Why are we reading into arrays?
+% Would make sense to package these into an event structure
+% Event
+%  |
+%  |-Donor- local- channel
+%  |   |      \--- time
+%  |   \--- global time
+%  |
+%  |-Acceptor- local- channel
+%  |   |         \--- time
+%  |   \--- global time
+% 
+% Then have an array of events
+
+% But, we're going for speed,and accessing fields takes time?
+ 
 % 
 % ------------------- User selectable variables ------------
 % 
-% %%
-% % gamma = input('gamma value:  ');
-PIE_MIN = input('PIE minimum value(~15):  ');
-% PIE_MAX = input('pie maximum value:  ');
-NOISE_MIN = input('noise minimum value(~10):  ');
-% NOISE_MAX = input('noise maximum value:  ');
 
-INCLUDE_SCATTERING = 1; % this shifts the time gate back to include the whole TCSPC histogram
-BIN_TIME = 1.0; % in millisecond
-% PIE_MIN = 15;   % input value
-PIE_MAX = 70;
-% NOISE_MIN = 10;  % input value
-NOISE_MAX = 70;
-%GAMMA = 2.1; %for Troponin (Cy3-Atto655)
-GAMMA = 1.15; % for DNA (Cy3-Alexa647)
+fprintf(1,'---------------------------------------------------------\n');
+fprintf(1,'>> Parameter selection\n');
+fprintf(1,'---------------------------------------------------------\n');
 
-% $$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$
-%DESC = 'scattering included';
-%DESC = 'D11A647(50pM), 1 msec';
-%NAME = input('Description of output data:  ');
-%DESC = 'D7A647(50pM)'; %$$$$$$$$$$$$$$$ Type data file name $$$$$$$$$$$$$$
-%filename = filename(length(filename)-4:length(filename)); %GHK
-%
-filename = filename(1:length(filename)-4); %GHK for printing file
-DESC = filename;                           %GHK
-if not(length(DESC))
-    DESC_LABEL = '';
+
+% Override PIE_MIN and NOISE_MIN
+if (PREFS.GUI == 1)
+    fprintf(1, '\n');
+    fprintf(1, 'Set thresholds');
+    fprintf(1, '\n');
+    pm = input(['AA minimum value(' int2str(PARAMS.PIE_MIN) ')']);
+    if (length(pm) == 1)
+        PARAMS.PIE_MIN = pm; % user didn't just hit enter
+    end;
+    clear pm;
+    nm = input(['DA + AA minimum value(' int2str(PARAMS.NOISE_MIN) ')']);
+    if (length(nm) == 1)
+        PARAMS.NOISE_MIN = nm; % user didn't just hit enter
+    end;
+    clear nm;
+end;
+
+% This is a description that you may want to include in a plot (or other
+% ouputs.
+
+desc_str = inFile.base; % default is to use the pathname.                  
+% other possibilities for DESC
+if not(length(desc_str))
+    PREFS.DESC_LABEL = '';
 else
-    DESC_LABEL = sprintf('(%s) ',DESC);
+    PREFS.DESC_LABEL = sprintf('(%s) ',desc_str);
 end;
 %
-%% =========================== TIME GATING ===============================
-%  forget about trying to get rid of scattered light.
+
+
+
+% display(inFile)
+fprintf(1,'---------------------------------------------------------\n');
+fprintf(1,'>> Entering analysis stage with these parameters\n');
+fprintf(1,'---------------------------------------------------------\n');
+
+display(PREFS)
+display(PARAMS)
+
 %
-load '../input/timeGateFilters.mat' DDTimeGate DATimeGate AATimeGate; % these are from analyzeTimeGates.m
+% =================================================================
+%   TCSPC Histogram
+% =================================================================
+% The idea was to try to get rid of
+% scattered light by chopping off the "first part" of the TCSPC trace.
+
+% This idea didn't really work out very well. 
 %
+load 'timeGateFilters.mat' DDTimeGate DATimeGate AATimeGate; % these are from analyzeTimeGates.m
+
+% If you think that time gating is a bad idea and you want to include
+% scattering then set PARAMS.INCLUDE_SCATTERING == 1
+
 FWHM = 7;
-if INCLUDE_SCATTERING
+if (PARAMS.INCLUDE_SCATTERING == 1)
     DDTimeGate(1) = floor(DDTimeGate(1) - 2.5*FWHM);
     DATimeGate(1) = floor(DATimeGate(1) - 2.5*FWHM);
     AATimeGate(1) = floor(AATimeGate(1) - 2.5*FWHM);
@@ -153,19 +236,19 @@ end;
 %
 % TCSPC plots in terms of time
 %
-chan = 0:round(syncPeriod/resolution); % gives integers
+chan = 0:round(inFile.syncPeriod/inFile.resolution); % gives integers
 %
-donorHist = histc(Ddt,chan); % do it on the center instead of edges (hist vs. histc)
-acceptorHist = histc(Adt,chan);
+donorHist = histc(Dlc,chan); % do it on the center instead of edges (hist vs. histc)
+acceptorHist = histc(Alc,chan);
 % USER VARIABLES
 %
 spadShift = DDTimeGate(1) - DATimeGate(1); % just for fun
 
-if PLOT_VS_TIME
-    t = chan*resolution; % in nsec
+if (PREFS.PLOT_VS_TIME == 1)
+    t = chan*inFile.resolution; % in nsec
     % green excitation
     subplot(2,1,1);
-    rectangle('Position',[resolution*DDTimeGate(1),0,resolution*(DDTimeGate(2)-DDTimeGate(1)),max(donorHist)*1.1],'FaceColor',[0.9 0.9 0.9],'edgecolor','none');
+    rectangle('Position',[inFile.resolution*DDTimeGate(1),0,inFile.resolution*(DDTimeGate(2)-DDTimeGate(1)),max(donorHist)*1.1],'FaceColor',[0.9 0.9 0.9],'edgecolor','none');
     hold on;
     plot(t,donorHist,'b');
     % semilogy(timeChan,donorHist,'b');
@@ -178,9 +261,9 @@ if PLOT_VS_TIME
     grid on;
 
     subplot(2,1,2);
-    rectangle('Position',[resolution*DATimeGate(1),0,resolution*(DATimeGate(2)-DATimeGate(1)),max(acceptorHist)*1.1],'FaceColor',[0.9 0.9 0.9],'edgecolor','none');
+    rectangle('Position',[inFile.resolution*DATimeGate(1),0,inFile.resolution*(DATimeGate(2)-DATimeGate(1)),max(acceptorHist)*1.1],'FaceColor',[0.9 0.9 0.9],'edgecolor','none');
     hold on;
-    rectangle('Position',[resolution*AATimeGate(1),0,resolution*(AATimeGate(2)-AATimeGate(1)),max(acceptorHist)*1.1],'FaceColor',[0.9 0.9 0.9],'edgecolor','none');
+    rectangle('Position',[inFile.resolution*AATimeGate(1),0,inFile.resolution*(AATimeGate(2)-AATimeGate(1)),max(acceptorHist)*1.1],'FaceColor',[0.9 0.9 0.9],'edgecolor','none');
     plot(t,acceptorHist,'r');
     hold off;
     % semilogy(timeChan,acceptorHist,'r');
@@ -191,8 +274,8 @@ if PLOT_VS_TIME
     title('Acceptor');
     grid on;
 
-    str = sprintf('../output/%sTCSPC_Time.eps', DESC_LABEL); print('-depsc',str)
-    if PLOT_TCSPC
+    str = sprintf('../output/%sTCSPC_Time.eps', PREFS.DESC_LABEL); print('-depsc',str)
+    if (PREFS.PLOT_TCSPC == 1)
         figure;
     else
         clf;
@@ -227,93 +310,151 @@ else % plot vs. channel
     title('Acceptor');
     grid on;
     %print -depsc2 '../output/TCSPCchan.eps'
-    str = sprintf('../output/%sTCSPC_chan.eps', DESC_LABEL); print('-depsc',str)
-    if PLOT_TCSPC
+    str = sprintf('../output/%sTCSPC_chan.eps', PREFS.DESC_LABEL); print('-depsc',str)
+    if (PREFS.PLOT_TCSPC == 1)
        figure;
     else
         clf;
     end;
 end;
 
-%%
-% ============================ MCS =====================================
+%
+% =================================================================
+%   MCS
+% =================================================================
 
 % MCS Plots with and without the time gate.
 
-BIN_TIME_INC = BIN_TIME * 1E6; % this gives it to us in nsec.
-% Apply time gates
-DDFilter = (Ddt >= DDTimeGate(1)) & (Ddt <= DDTimeGate(2)); 
-DAFilter = (Adt >= DATimeGate(1)) & (Adt <= DATimeGate(2));
-AAFilter = (Adt >= AATimeGate(1)) & (Adt <= AATimeGate(2));
+BIN_TIME_INC = PARAMS.BIN_TIME * 1E6; % this gives it to us in nsec.
+% Apply time gates to get logical filters
+DDFilter = (Dlc >= DDTimeGate(1)) & (Dlc <= DDTimeGate(2)); 
+DAFilter = (Alc >= DATimeGate(1)) & (Alc <= DATimeGate(2));
+AAFilter = (Alc >= AATimeGate(1)) & (Alc <= AATimeGate(2));
+% ADfilter is meaningless
 
-maxTime = min([Dtt(end);Att(end)]/1E6); % in milliseconds % divide by 60,000 to get minutes
+% these xXFilter arrays are over the list of photons.
+% DDFilter is one when the photon is within the DDTimeGate range
 
-DDtmp = getMCS(Dtt,DDFilter, BIN_TIME,maxTime);
-DAtmp = getMCS(Att,DAFilter, BIN_TIME,maxTime);
-AAtmp = getMCS(Att,AAFilter, BIN_TIME,maxTime);
+% As a check we could do something like:
+% (DDFilter | DAFilter | AAFilter) == ones()
 
-% note that length(DD) = length(DA) = length(AA)
 
+% >> return maps that will be used for photon selection
+DDFilterPos = find(DDFilter); % give me the indices of all photons that pass the DDFilter.
+DAFilterPos = find(DAFilter);
+AAFilterPos = find(AAFilter);
+% AAFilterPos = filterPos(AAFilter);
+% we have now assigned events
+
+fprintf(1,'Number of DD counts: %i\n',length(DDFilterPos));
+fprintf(1,'Number of DA counts: %i\n',length(DAFilterPos));
+fprintf(1,'Number of AA counts: %i\n',length(AAFilterPos));
+
+% >> global time
+DDgt = Dgt(DDFilterPos); % pick 
+DAgt = Agt(DAFilterPos);
+AAgt = Agt(AAFilterPos);
+% >> local time
+DDlc = Dlc(DDFilterPos);
+DAlc = Alc(DAFilterPos);
+AAlc = Alc(AAFilterPos); %note that AA has a seriously right-shifted tcal.
+% We have assigned the events to the proper channel.
+% Can verify using (for example):
+%   myHist = histc(DDlc,chan);
+%   plot(chan,myHist);
+
+% >> assign events in DD, DA,AA to an MCS bins.
+maxTime = min([Dgt(end);Agt(end)]/1E6); % in milliseconds % divide by 60,000 to get minutes
+fprintf(1,'Experiment time: %i min\n',floor(maxTime/60000));
+
+% >> Calc the MCS data
+[DDtmp, DDphotonMap, DDbinMapTmp] = calcMCS(DDgt, PARAMS.BIN_TIME, maxTime);
+[DAtmp, DAphotonMap, DAbinMapTmp] = calcMCS(DAgt, PARAMS.BIN_TIME, maxTime);
+[AAtmp, AAphotonMap, AAbinMapTmp]= calcMCS(AAgt, PARAMS.BIN_TIME, maxTime);
+
+% A useful measure of noise is the number of ms with zero photons detected
+
+% >> correct for possible differences in size of arrays XXtmp
 smallest = min([length(DDtmp), length(DAtmp), length(AAtmp)]);
-
 DD = DDtmp(1:smallest);
 DA = DAtmp(1:smallest);
 AA = AAtmp(1:smallest);
+DDbinMap = DDbinMapTmp(1:smallest);
+DAbinMap = DAbinMapTmp(1:smallest);
+AAbinMap = AAbinMapTmp(1:smallest);
+% This way, length(DD) = length(DA) = length(AA)
+
+% NOTE, XXphotonMap is not corrected for "rogue" photons to an extra bin on
+% the end.
+
 
 meanCounts = [mean(DD), mean(DA), mean(AA)]; % gives average counts per bin
 stdCounts = [std(DD), std(DA), std(AA)];
 
-if PLOT_BURST
+fprintf(1,'MCS statistics:');
+display(meanCounts)
+display(stdCounts)
+diary off
+
+
+if (PREFS.PLOT_BURST == 1) % plot individual burst traces?
     figure;
     start = 1000;
     len = 2000;
-    str = sprintf('Counts / %1.1f ms',BIN_TIME)
-    plotBurst1(BIN_TIME,DD,start,len,str); 
+    str = sprintf('Counts / %1.1f ms',PARAMS.BIN_TIME);
+    plotBurst1(PARAMS.BIN_TIME,DD,start,len,str); 
     title('DD');
     figure;
-    plotBurst1(BIN_TIME,DA,start,len,str);
+    plotBurst1(PARAMS.BIN_TIME,DA,start,len,str);
     title('DA');
     figure;
-    plotBurst1(BIN_TIME,AA,start,len,str);
+    plotBurst1(PARAMS.BIN_TIME,AA,start,len,str);
     title('AA');
 end;
 
-% Plots of the photon counting histograms. This shows the effect of the thresholds
-% ====================== DD photon counting histogram ============
-countBins = 0:max(DD);
+%
+% =================================================================
+%   PCH
+% =================================================================
+
+% ------------------ DD photon counting histogram ------------------
+
+countBins = 0:max(DD); % Maximum y value
 DDCounts = myHistc(DD,countBins)/maxTime;
+DDCountsCum = cumsum(DDCounts);
 semilogx(DDCounts,countBins,'b');
 set(gca,'FontName','Helvetica');
 set(gca,'FontSize',14);
 xlabel('Frequency [Events/sec]');
-ylab = sprintf('Counts / %1.1f ms',BIN_TIME); ylabel(ylab); 
+ylab = sprintf('Counts / %1.1f ms',PARAMS.BIN_TIME); ylabel(ylab); 
 title('DD photon counting histogram');
 grid on;
 ax = axis;
 hold on;
 cMin = 1E-8;
 cMax = max(DDCounts);
-semilogx([cMin cMax], [NOISE_MIN NOISE_MIN],'r');
-semilogx([cMin cMax], [NOISE_MAX NOISE_MAX],'g');
+semilogx([cMin cMax], [PARAMS.NOISE_MIN PARAMS.NOISE_MIN],'r');
+semilogx([cMin cMax], [PARAMS.NOISE_MAX PARAMS.NOISE_MAX],'g');
 %xlim([cMin cMax]);
 hold off;
 axis(ax);
 % print -depsc2 '../output/DDphotonCountingHistogram.eps'
-str = sprintf('../output/%sDDphotonCountingHistogram.eps', DESC_LABEL); print('-depsc',str);
-if PLOT_PHOTON_COUNTING_HISTOGRAM
+str = sprintf('../output/%sDDphotonCountingHistogram.eps', PREFS.DESC_LABEL); print('-depsc',str);
+if (PREFS.PLOT_PHOTON_COUNTING_HISTOGRAM == 1)
     figure;
 else
     clf;
 end;
 
-% ====================== DA photon counting histogram ============
-countBins = 0:max(DA);
+% ------------------ DA photon counting histogram ------------------
+
+countBins = 0:max(DA); % this produces max(DA)+1 bins.
 DACounts = myHistc(DA,countBins)/maxTime;
 semilogx(DACounts,countBins,'b');
 set(gca,'FontName','Helvetica');
 set(gca,'FontSize',14);
 xlabel('Frequency [Events/sec]');
-ylab = sprintf('Counts / %1.1f ms',BIN_TIME); ylabel(ylab); 
+ylab = sprintf('Counts / %1.1f ms',PARAMS.BIN_TIME); ylabel(ylab); 
 title('DA photon counting histogram');
 grid on;
 % ax = axis;
@@ -326,14 +467,15 @@ grid on;
 % hold off;
 % axis(ax);
 % print -depsc2 '../output/DDphotonCountingHistogram.eps'
-str = sprintf('../output/%sDAphotonCountingHistogram.eps', DESC_LABEL); print('-depsc',str);
-if PLOT_PHOTON_COUNTING_HISTOGRAM
+str = sprintf('../output/%sDAphotonCountingHistogram.eps', PREFS.DESC_LABEL); print('-depsc',str);
+if (PREFS.PLOT_PHOTON_COUNTING_HISTOGRAM == 1)
     figure;
 else
     clf;
 end;
 
-% ====================== DD + DA photon counting histogram ============
+% ------------------ DD + DA photon counting histogram ------------------
+
 DTot = DD + DA;
 countBins = 0:max(DTot);
 DDDACounts = myHistc(DTot,countBins)/maxTime;
@@ -352,21 +494,22 @@ hold on;
 cMin = 1E-8;
 %cMin = min(DDDAcounts)
 cMax = max(DDDACounts);
-semilogx([cMin cMax], [NOISE_MIN NOISE_MIN],'r');
-semilogx([cMin cMax], [NOISE_MAX NOISE_MAX],'g');
+semilogx([cMin cMax], [PARAMS.NOISE_MIN PARAMS.NOISE_MIN],'r');
+semilogx([cMin cMax], [PARAMS.NOISE_MAX PARAMS.NOISE_MAX],'g');
 % xlim([cMin cMax]);
 hold off;
 %axis tight;
 axis(ax);
 % print -depsc2 '../output/DDDAphotonCountingHistogram.eps'
-str = sprintf('../output/%sDDDAphotonCountingHistogram.eps', DESC_LABEL); print('-depsc',str);
-if PLOT_PHOTON_COUNTING_HISTOGRAM
+str = sprintf('../output/%sDDDAphotonCountingHistogram.eps', PREFS.DESC_LABEL); print('-depsc',str);
+if (PREFS.PLOT_PHOTON_COUNTING_HISTOGRAM == 1)
     figure;
 else
     clf;
 end;
 
-% ====================== AA photon counting histogram ============
+% ------------------ AA photon counting histogram ------------------
+
 countBins = 0:max(AA);
 AACounts = myHistc(AA,countBins)/maxTime;
 %bar(x,log10(n));
@@ -382,65 +525,77 @@ ax = axis;
 hold on;
 cMin = 1E-8;
 cMax = max(AACounts);
-semilogx([cMin cMax], [PIE_MIN PIE_MIN],'r');
-semilogx([cMin cMax], [PIE_MAX PIE_MAX],'g');
+semilogx([cMin cMax], [PARAMS.PIE_MIN PARAMS.PIE_MIN],'r');
+semilogx([cMin cMax], [PARAMS.PIE_MAX PARAMS.PIE_MAX],'g');
 %xlim([cMin cMax]);
 hold off;
 axis(ax);
 % print -depsc2 '../output/AAphotonCountingHistogram.eps'
-str = sprintf('../output/%sAAphotonCountingHistogram.eps', DESC_LABEL); print('-depsc',str);
-if PLOT_PHOTON_COUNTING_HISTOGRAM
+str = sprintf('../output/%sAAphotonCountingHistogram.eps', PREFS.DESC_LABEL); print('-depsc',str);
+if (PREFS.PLOT_PHOTON_COUNTING_HISTOGRAM == 1)
     figure;
 else
     clf;
 end;
 
-% ============================= Main analysis =============================
+%
+% =================================================================
+%   Main Analysis
+% =================================================================
 
-NUM_BINS = 41;
-TE_LIM = [0.0 1.0];
-S_LIM = [0.0 1.0];
-TEBins = linspace(TE_LIM(1),TE_LIM(2),NUM_BINS);
-SBins = linspace(S_LIM(1),S_LIM(2),NUM_BINS);
-%bins = (0:numBins)/double(numBins);
-%bins = (0:(numBins-1))/(numBins-1.);
+TEBins = linspace(PLOT_PREFS.TE_LIM(1),PLOT_PREFS.TE_LIM(2),PLOT_PREFS.NUM_BINS);
+SBins = linspace(PLOT_PREFS.S_LIM(1),PLOT_PREFS.S_LIM(2),PLOT_PREFS.NUM_BINS);
 
-start = 200000;
-len = 3000;
-len = len + 1; %makes the plots prettier.
+% ------------------- Burst selection filters --------------------
 
-% =============== Calculate the filters ======================
-% define PIE filter
-redFilter = ((AA > PIE_MIN) & (AA < PIE_MAX)); %pieFilter is a logical array
-greenFilter = ((DD+DA > NOISE_MIN) & (DD+DA < NOISE_MAX));
-%countFilter = ((DD > noiseMin) & (DD < noiseMax));
-greenAndRedFilter = redFilter & greenFilter;
 
-greenOrRedFilter = redFilter | greenFilter;
+% these are logical arrays that will be used to select bursts
+redFilter = ((AA > PARAMS.PIE_MIN) & (AA < PARAMS.PIE_MAX)); % Acceptor is there
+notRedFilter = (AA <= PARAMS.NOT_RED) & (DA <= PARAMS.NOT_RED); % identifies sample c/ no red counts
+greenFilter = ((DD+DA > PARAMS.NOISE_MIN) & (DD+DA < PARAMS.NOISE_MAX)); % burst selection. Fluorescence could come out of donor or acceptor
+notGreenFilter = (DD <= PARAMS.NOT_GREEN); % sample with no green counts
+
+greenAndRedFilter = redFilter & greenFilter; % this gives the FRET-quenched donors
+greenOrRedFilter = redFilter | greenFilter; % unused
+greenAndNotRedFilter = greenFilter & notRedFilter; % this gives the donor-only population.
+redAndNotGreenFilter = redFilter & notGreenFilter; % this gives acceptor-only population.
+
+% >> return maps that will be used for photon selection
+redFilterPos = find(redFilter);
+greenFilterPos = find(greenFilter);
+greenAndRedFilterPos = find(greenAndRedFilter);
+greenOrRedFilterPos = find(greenOrRedFilter);
+greenAndNotRedFilterPos = find(greenAndNotRedFilter);
+% we have now assigned events
+
+fprintf(1,'Total bursts: %i\n',length(greenFilterPos));
+fprintf(1,'Total PIE selected bursts: %i\n',length(greenAndRedFilterPos));
+fprintf(1,'Total Donor-only bursts: %i\n',length(greenAndNotRedFilterPos));
+
 
 
 % ------------------- Burst Traces ----------------------------------
 
-% ------------------- without PIE filtering ------------------------
+% >> without PIE filtering
 %figure
-plotBurst2sel(BIN_TIME,DD,DA,greenFilter,start,len);
+plotBurst2sel(PARAMS.BIN_TIME,DD,DA,greenFilter,PLOT_PREFS);
 pbaspect([4.0 1 1]);
 title('Donor excitation'); %GHK
 %print -depsc2 '../output/normalBurst.eps';
-str = sprintf('../output/%sgreenExcitedBurst.eps', DESC_LABEL); print('-depsc',str);
-if PLOT_BURST_SEL
+str = sprintf('../output/%sgreenExcitedBurst.eps', PREFS.DESC_LABEL); print('-depsc',str);
+if (PREFS.PLOT_BURST_SEL == 1)
     figure;
 else
     clf;
 end;
 
-% ------------------- with PIE filtering ------------------------
+% >> with PIE filtering
 % Plot results (as subplots)
 % top is burst plot of donor and acceptor with Donor excitation
 % figure
 subplot(2,1,1);
 %plotBurst2sel(tstep,DD,DA,pieFilter,start,len);
-plotBurst2sel(BIN_TIME,DD,DA,greenAndRedFilter,start,len);
+plotBurst2sel(PARAMS.BIN_TIME,DD,DA,greenAndRedFilter,PLOT_PREFS);
 title('Donor excitation');
 
 % set(h,'XTick',[])
@@ -448,51 +603,68 @@ title('Donor excitation');
 
 % bottom plot is plot of acceptor getting directly excited
 subplot(2,1,2); 
-plotBurst1sel(BIN_TIME,AA,redFilter,start,len);
+plotBurst1sel(PARAMS.BIN_TIME,AA,redFilter,PLOT_PREFS);
 title('Acceptor excitation');
 % pbaspect([4.0 1 1]);
 
-str = sprintf('../output/%spieBurst.eps', DESC_LABEL); print('-depsc',str);
-if PLOT_BURST_SEL
+str = sprintf('../output/%spieBurst.eps', PREFS.DESC_LABEL); print('-depsc',str);
+if (PREFS.PLOT_BURST_SEL == 1)
     figure;
 else
     clf;
 end;
 
-%
-%
-%% ----------------------- 1D histograms ---------------------------------
-% the 1D analysis with the PIE selection on.
 
-F_D1 = GAMMA*DD + DA;
+% =================================================================
+%   1D Histograms
+% =================================================================
+
+
+% >> 1D analysis with the PIE selection on.
+F_D1 = PARAMS.GAMMA*DD + DA;
 F_D2 = DD + DA; 
 F_A = AA;
 
 TE = DA./F_D1;
-S = F_D2./(F_D2 + F_A); % S used a gamma uncorrected DD.
+S = F_D2./(F_D2 + F_A); % S uses a gamma uncorrected DD.
 
-% fTE = filterSelect(TE,greenFilter); this selects the green-excited
-fTE = filterSelect(TE,greenOrRedFilter);
-fTEPIE = filterSelect(TE,greenAndRedFilter); %with PIE selection
-TEHist = myHistc(fTE,TEBins);
-TEHistPIE = myHistc(fTEPIE,TEBins); %with PIE selection
+% In other words:
+% TE = DA./(gamma*DD + DA)
+% S = (DD + DA)/(DD + DA + AA)
 
-% fS = filterSelect(S,greenFilter);
-fS = filterSelect(S,greenOrRedFilter);
-fSPIE = filterSelect(S,greenAndRedFilter);
+fTE = TE(greenFilterPos); % D-excited
+fS = S(greenFilterPos);;
+fTEPIE = TE(greenAndRedFilterPos); % D-excited and PIE selected
+fSPIE = S(greenAndRedFilterPos);
+fNTEPIE = TE(greenAndNotRedFilterPos); % DO-sample
+fNSPIE = S(greenAndNotRedFilterPos);
+
+
+TEHist = myHistc(fTE,TEBins); % noise-selected
 SHist = myHistc(fS,SBins);
+
+TEHistPIE = myHistc(fTEPIE,TEBins); %with PIE selection
 SHistPIE = myHistc(fSPIE,SBins);
 
-% ------- Plot of TE
+TEHistNotPIE = myHistc(fNTEPIE,TEBins); % DO-population
+SHistNotPIE = myHistc(fNSPIE,SBins);
+
+% assert sum(TEHistNotPIE) == sum(SHistNotPIE) == length(fNTEPIE) == T
+
+% >> Plot of TE
 figure(1),
 subplot(2,1,1);
 TEPlotPIE = bar(TEBins,TEHistPIE,1,'histc');
+% >> plot the DO population
+% hold on
+% bar(TEBins,TEHistNotPIE,1,'histc');
+% hole off
 set(TEPlotPIE,'EdgeColor','k');
 set(TEPlotPIE,'Facecolor','w');
 set(gca,'FontName','Helvetica');
 set(gca,'FontSize',14);
 %xlim([TEBins(1) TEBins(end)]);
-xlim(TE_LIM);
+xlim(PLOT_PREFS.TE_LIM);
 xlabel('TE'); ylabel('Counts');
 title('With PIE selection');
 
@@ -503,20 +675,20 @@ set(TEPlot,'Facecolor','w');
 set(gca,'FontName','Helvetica');
 set(gca,'FontSize',14);
 %xlim([TEBins(1) TEBins(end)]);
-xlim(TE_LIM);
+xlim(PLOT_PREFS.TE_LIM);
 xlabel('TE'); ylabel('Counts');
 title('Without PIE selection');
-if COMMENT
+if PREFS.COMMENT
     legend(DESC);
 end;
-str = sprintf('../output/%s1D_TE.eps', DESC_LABEL); print('-depsc',str);
-if PLOT_1D_HIST
+str = sprintf('../output/%s1D_TE.eps', PREFS.DESC_LABEL); print('-depsc',str);
+if (PREFS.PLOT_1D_HIST == 1)
     figure;
 else
     clf;
 end;
 
-% ----- Plot of S -------
+% >> Plot of S
 figure(2),
 subplot(2,1,1);
 SPlotPIE = bar(SBins,SHistPIE,1,'histc');
@@ -525,7 +697,7 @@ set(SPlotPIE,'Facecolor','w');
 set(gca,'FontName','Helvetica');
 set(gca,'FontSize',14);
 %xlim([SBins(1) SBins(end)]);
-xlim(S_LIM);
+xlim(PLOT_PREFS.S_LIM);
 xlabel('S'); ylabel('Counts'); 
 title('With PIE selection');
 
@@ -536,167 +708,50 @@ set(SPlot,'Facecolor','w');
 set(gca,'FontName','Helvetica');
 set(gca,'FontSize',14);
 %xlim([SBins(1) SBins(end)]);
-xlim(S_LIM);
+xlim(PLOT_PREFS.S_LIM);
 xlabel('S'); ylabel('Counts'); 
 title('Without PIE selection');
-if COMMENT
+if (PREFS.COMMENT == 1)
     legend(DESC);
 end;
-str = sprintf('../output/%s1D_S.eps', DESC_LABEL); print('-depsc',str);
-if PLOT_1D_HIST
+str = sprintf('../output/%s1D_S.eps', PREFS.DESC_LABEL); print('-depsc',str);
+if PREFS.PLOT_1D_HIST
     figure;
 else
     clf;
 end;
 
+%%
+% =================================================================
+%   2D Histograms
+% =================================================================
 
-%% -------------------------2D Hist Log scale in 2D hist-------------------
-% for 2D histogram analysis, we select only based on countFilter
-figure(3),
-subplot(2,2,1); 
-bar(TEBins,TEHist,1,'histc'); 
-TEHistPlot = gca; 
-axis([TE_LIM 0 max(TEHist)*1.01]); %axis('off');
-%set(TEHistPlot,'xtick',[]); % don't write the x axis
-set(gca,'FontName','Helvetica');
-set(gca,'FontSize',14);
-ylabel('Counts');
-title('2D histogram (Log) w/o PIE selection');
-% grid on;
-% Main plot
-subplot(2,2,3); 
-%mainHist(fTE,fS,TEBins,SBins,1,'k.',flipud(gray(256)));
-% mainHistLog(fTE,fS,TEBins,SBins,1,'k.',flipud(bone(256)));  %JMR
-mainHistLog(fTE,fS,TEBins,SBins,1,'k.',jet(256));  %% Log scale in 2D
-h1 = gca; % axis([xlim ylim]);
-xlabel('TE'); ylabel('S');
+% h = 2DHistPlot(@mainHistLog,TEBins,TEHist,SBins,SHist,fTE,fS,PREFS,...
+%    '2D histogram (Log) w/o PIE selection','flipud(hot(256))');
 
-% SHistPlot
-subplot(2,2,4);     
-barh(SBins,SHist,1,'histc');
-SHistPlot = gca; 
-axis([0 max(SHist)*1.01 S_LIM]); %axis('off');
-%set(SHistPlot,'ytick',[]); % don't write the y axis
-set(gca,'FontName','Helvetica');
-set(gca,'FontSize',14);
-xlabel('Counts');
-% grid on;
-%line([0 0],ylim-yoff,'Color','k')
+% PLOT_PREFS.CMAP = flipud(hot(256));
+% PLOT_PREFS.CMAP = flipud(pink(256));
+% PLOT_PREFS.CMAP = flipud(bone(256));
+PLOT_PREFS.CMAP = jet(256);
+h2D = f2DHistPlot(@mainHist,TEBins,TEHist,SBins,SHist,fTE,fS,PREFS,PLOT_PREFS,'2D histogram','2DHist');
 
-%set(h1,'Position',[0.1 0.1 0.60 0.60]);
-%set(TEHistPlot,'Position',[.1 .75 .60 .2]);
-%set(SHistPlot,'Position',[.75 .1 .2 .60]);
-set(h1,'Position',[0.15 0.1 0.50 0.60]);
-set(TEHistPlot,'Position',[.15 .75 .50 .2]);
-set(SHistPlot,'Position',[.70 .1 .2 .60]);
-str = sprintf('../output/%s2DHistThreshLog.eps', DESC_LABEL); print('-depsc',str);
+% PLOT_PREFS.CMAP = jet(256);
+h2DL = f2DHistPlot(@mainHistLog,TEBins,TEHist,SBins,SHist,fTE,fS,PREFS,PLOT_PREFS,'2D histogram (Log)','2DHistLog');
 
-if COMMENT
-    aa = legend(DESC);
-    set (aa, 'Position',[.70 .82 .20 .05]);
-end;
-%str = sprintf('../output/%s2DHistThresh.eps', DESC_LABEL); print('-depsc',str);
+% PLOT_PREFS.CMAP = jet(256);
+h2DL = f2DHistPlot(@mainHist,TEBins,TEHistPIE,SBins,SHistPIE,fTEPIE,fSPIE,PREFS,PLOT_PREFS,'2D histogram with PIE selection','2DHistPIE');
+
+% this is the DO-populaiton
+h2DL = f2DHistPlot(@mainHist,TEBins,TEHistNotPIE,SBins,SHistNotPIE,fNTEPIE,fNSPIE,PREFS,PLOT_PREFS,'2D histogram zero peak selection','2DHistNotPIE');
 
 
-%% -------------------------2D Hist ------------------------------------
-% for 2D histogram analysis, we select only based on countFilter
-figure(4),
-subplot(2,2,1); 
-bar(TEBins,TEHist,1,'histc'); 
-TEHistPlot = gca; 
-axis([TE_LIM 0 max(TEHist)*1.01]); %axis('off');
-%set(TEHistPlot,'xtick',[]); % don't write the x axis
-set(gca,'FontName','Helvetica');
-set(gca,'FontSize',14);
-ylabel('Counts');
-title('2D histogram w/o PIE selection');
-% grid on;
-% Main plot
-subplot(2,2,3); 
-%mainHist(fTE,fS,TEBins,SBins,1,'k.',jet(256));
-%mainHist(fTE,fS,TEBins,SBins,1,'k.',flipud(bone(256)));
-mainHist(fTE,fS,TEBins,SBins,1,'k.',flipud(hot(256)));  % Hot color
-h1 = gca; % axis([xlim ylim]);
-xlabel('TE'); ylabel('S');
-
-% SHistPlot
-subplot(2,2,4);     
-barh(SBins,SHist,1,'histc');
-SHistPlot = gca; 
-axis([0 max(SHist)*1.01 S_LIM]); %axis('off');
-%set(SHistPlot,'ytick',[]); % don't write the y axis
-set(gca,'FontName','Helvetica');
-set(gca,'FontSize',14);
-xlabel('Counts');
-% grid on;
-%line([0 0],ylim-yoff,'Color','k')
-
-%set(h1,'Position',[0.1 0.1 0.60 0.60]);
-%set(TEHistPlot,'Position',[.1 .75 .60 .2]);
-%set(SHistPlot,'Position',[.75 .1 .2 .60]);
-set(h1,'Position',[0.15 0.1 0.50 0.60]);
-set(TEHistPlot,'Position',[.15 .75 .50 .2]);
-set(SHistPlot,'Position',[.70 .1 .2 .60]);
-str = sprintf('../output/%s2DHistThresh.eps', DESC_LABEL); print('-depsc',str);
-
-if COMMENT
-    bb = legend(DESC);
-    set (bb, 'Position',[.70 .82 .20 .05]);
-end;
-%str = sprintf('../output/%s2DHistThresh.eps', DESC_LABEL); print('-depsc',str);
+%%
+% =================================================================
+%   Peak point selection
+% =================================================================
 
 
-%% for 2D histogram with PIE filtering %GHK
-
-figure(5),
-subplot(2,2,1); 
-bar(TEBins,TEHistPIE,1,'histc'); 
-TEHistPlot = gca; 
-axis([TE_LIM 0 max(TEHistPIE)*1.01]); %axis('off');
-%set(TEHistPlot,'xtick',[]); % don't write the x axis
-set(gca,'FontName','Helvetica');
-set(gca,'FontSize',14);
-ylabel('Counts');
-title('2D histogram with PIE selection');
-
-% grid on;
-% Main plot
-subplot(2,2,3); 
-%mainHist(fTEPIE,fSPIE,TEBins,SBins,1,'k.',flipud(gray(256)));
-%mainHist(fTEPIE,fSPIE,TEBins,SBins,1,'k.',flipud(bone(256)));  %JMR
-mainHist(fTEPIE,fSPIE,TEBins,SBins,1,'k.',jet(256));  %%MMK
-h1 = gca; % axis([xlim ylim]);
-xlabel('TE'); ylabel('S');
-
-% SHistPlot
-subplot(2,2,4);     
-barh(SBins,SHistPIE,1,'histc');
-SHistPlot = gca; 
-axis([0 max(SHistPIE)*1.01 S_LIM]); %axis('off');
-%set(SHistPlot,'ytick',[]); % don't write the y axis
-set(gca,'FontName','Helvetica');
-set(gca,'FontSize',14);
-xlabel('Counts');
-% grid on;
-%line([0 0],ylim-yoff,'Color','k')
-
-%set(h1,'Position',[0.1 0.1 0.60 0.60]);
-%set(TEHistPlot,'Position',[.1 .75 .60 .2]);
-%set(SHistPlot,'Position',[.75 .1 .2 .60]);
-set(h1,'Position',[0.15 0.1 0.50 0.60]);
-set(TEHistPlot,'Position',[.15 .75 .50 .2]);
-set(SHistPlot,'Position',[.70 .1 .2 .60]);
-
-str = sprintf('../output/%s2DHistThreshPIE.eps', DESC_LABEL); print('-depsc',str);
-
-if COMMENT
-   cc = legend(DESC);
-   set (cc, 'Position',[.70 .82 .20 .05]);
-end;
-
-%str = sprintf('../output/%s2DHistThreshPIE.eps', DESC_LABEL); print('-depsc',str);
-
-%% for peak point of TE, %GHK, Jan. 29, 2012
+% >> Peak point selection %GHK
 
 figure(6),
 subplot(2,1,1)
@@ -712,9 +767,9 @@ hold off;
 %
 set(gca,'FontName','Helvetica');
 set(gca,'FontSize',14);
-xlim(TE_LIM);
+xlim(PLOT_PREFS.TE_LIM);
 xlabel('TE'); ylabel('Counts');
-title(['TE of ',filename]);
+title(['TE of ',inFile.name]);
 %title('TE With PIE selection');
 %if COMMENT
 %   legend(DESC);
@@ -731,26 +786,31 @@ set(gca,'FontSize',14);
 title('TE after smoothing');
 %
 %
-%% use matlab curvefitting toolbox to fit to gaussians, Feb. 09 2012
+
+%%
+% =================================================================
+%   Fitting to 1 or more Gaussians
+% =================================================================
+%use matlab curvefitting toolbox to fit to gaussians, Feb. 09 2012
 %
 % Here, what we are doing is doing histogrms on center instead of on edges.
 %
 % PARAMETERS
-figure(7),
+figure;
 NUM_GAUSSIANS = 1;     % 2 for two gaussian fit
 REDUCED_FIT_RANGE = 1; % if true the don't fit to the full range of TE;s
 %                      % 0 for full range, 1 for reduced fit range 
 %
-R_NUM_BINS = NUM_BINS - 1; % doing on centers reduces NUM_BINS by 1
+R_NUM_BINS = PLOT_PREFS.NUM_BINS - 1; % doing on centers reduces NUM_BINS by 1
 binWidthD2 = (TEBins(2)-TEBins(1))/2;
-TEMidBins = linspace(TE_LIM(1)+binWidthD2,TE_LIM(2)-binWidthD2,R_NUM_BINS);
+TEMidBins = linspace(PLOT_PREFS.TE_LIM(1)+binWidthD2,PLOT_PREFS.TE_LIM(2)-binWidthD2,R_NUM_BINS);
 %
 if REDUCED_FIT_RANGE
 %TEFitRange = [0.5 0.98]; % reduced fit range for 0.8 above
 TEFitRange = [0.2 0.8]; % center weighted fitting
 %TEFitRange = [0.02 0.55]; % reduced fit range for 0.3 below
 else
-   TEFitRange = TE_LIM;
+   TEFitRange = PLOT_PREFS.TE_LIM;
 %   TEFitRange = [0.1 0.9];
 end
 % TEFitRange = [0 1];
@@ -787,7 +847,7 @@ set(gca,'FontName','Helvetica');
 set(gca,'FontSize',14);
 % xlim(TE_LIM);
 xlabel('TE'); ylabel('Counts');
-title(['TE of ',filename]);
+title(['TE of ',inFile.name]);
 
 % argnames(a);
 c = coeffvalues(a); 
@@ -802,57 +862,27 @@ switch NUM_GAUSSIANS
     case 3
         meanTE = (c(1)*c(2) + c(4)*c(5) + c(7)*c(8) )/( c(1) + c(4) + c(7) ); % amplitude weighted mixture
 end
-PIE_MIN, NOISE_MIN,
-meanTE
+% PARAMS.PIE_MIN, PARAMS.NOISE_MIN,meanTE
 MTE = meanTE; % for texting mean TE on figure
 ytext = max(TEHistPIE);
 text(0.01,ytext,['Mean TE = ', num2str(MTE)],'FontSize',14,'BackgroundColor',[.7 .9 .7]);
 % for print output folder
-str = sprintf('../output/%sGaussianFittedMeanTE.eps', DESC_LABEL); print('-depsc',str); %print on output folder
+str = sprintf('../output/%sGaussianFittedMeanTE.eps', PREFS.DESC_LABEL); print('-depsc',str); %print on output folder
 %
 %
-%
-%
-%%
-%
-figure(8),
-%
-bar(TEMidBins,TEHistPIE(1:R_NUM_BINS));
-hold on;
-fp = plot(a,'-r');
-hold off;
-set(fp,'linewidth',2);
-set(gca,'FontName','Helvetica');
-set(gca,'FontSize',14);
-% xlim(TE_LIM);
-xlabel('TE'); ylabel('Counts');
-title(['TE of ',filename]);
 
-% argnames(a);
-c = coeffvalues(a); 
-meanTE = c(2);
-stdTE = c(3);
-Totalevents = sum(TEHistPIE); % sum of all FRET events after threshold
-Totalevents,
-switch NUM_GAUSSIANS
-    case 1
-        meanTE = c(2);
-    case 2
-        meanTE = (c(1)*c(2) + c(4)*c(5) )/( c(1) + c(4) ); % amplitude weighted mixture
-    case 3
-        meanTE = (c(1)*c(2) + c(4)*c(5) + c(7)*c(8) )/( c(1) + c(4) + c(7) ); % amplitude weighted mixture
+
+%%
+% =================================================================
+%   TCSPC of PIE-filtered data
+% =================================================================
+
+% greenAndRedFilterPos is an array of bins 
+
+index = 1;
+for i=1:length(greenAndRedFilterPos)
+    m = greenAndRedFilterPos(i);
+    mL = length(m);
+    DDlcSel(index:(index+mL-1))=DDlc(m);
+    index = index+mL;
 end
-%gtext(['TE = ', num2str(MTE)],'FontSize',14,'BackgroundColor',[.7 .9 .7]);
-ytext = max(TEHistPIE);
-yytext = ytext*0.1;
-yyytext = ytext*0.9;
-text(0.01,ytext,['Mean TE = ', num2str(MTE)],'FontSize',14,'BackgroundColor',[.7 .9 .7]);
-text(0.4,yytext,['FRET events = ', num2str(Totalevents)],'FontSize',14,'BackgroundColor',[.7 .7 .7]);
-text(0.01,yyytext, ['PIE Min: ', num2str(PIE_MIN), ',  Noise Min: ', num2str(NOISE_MIN)],'FontSize',10,'BackgroundColor',[.7 .9 .7]);
-%gtext(['PIE Min: ', num2str(PIE_MIN), ', Noise Min: ', num2str(NOISE_MIN)],'FontSize',12,'BackgroundColor',[.7 .9 .7]);
-grid
-%
-str = sprintf('../output/%sGaussianFittedMeanTE2.eps', DESC_LABEL); print('-depsc',str); %print on output folder
-%
-%
-%

@@ -17,8 +17,8 @@ function [MCS, photonMap, binMap] = calcMCS(photonArrivalTimes,BIN_TIME,maxTime)
 
 
 % INPUT:
-% photonArrivalTimes, photon arrival times (in global time)
-% BIN_TIME, bin time (in msec), usually 1 ms.
+% photonArrivalTimes. photon arrival times (in global time)
+% BIN_TIME. time interval = bin width (in msec), usually 1 ms.
 % maxTime, ???
 
 % OUTPUT:
