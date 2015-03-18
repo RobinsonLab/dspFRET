@@ -11,8 +11,8 @@ File Structure
 
 Output
 ======
-TCSPC histogram
-Photon counting histogram (PCH)
-MCS traces (also called burst traces)
-1D histograms of TE, S, and tau_DD
-2D histograms of TE-S and TE and tau_DD
+- TCSPC histogram
+- Photon counting histogram (PCH)
+- MCS traces (also called burst traces)
+- 1D histograms of TE, S, and tau_DD
+- 2D histograms of TE-S and TE and tau_DD
