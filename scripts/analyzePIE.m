@@ -777,6 +777,47 @@ else
     clf;
 end;
 
+% >> Plot of TE and tau
+figure(3),
+subplot(2,1,1);
+TEPlotPIE = bar(TEBins,TEHistPIE,1,'histc');
+% >> plot the DO population
+% hold on
+% bar(TEBins,TEHistNotPIE,1,'histc');
+% hole off
+set(TEPlotPIE,'EdgeColor','k');
+set(TEPlotPIE,'Facecolor','w');
+set(gca,'FontName','Helvetica');
+set(gca,'FontSize',14);
+%xlim([TEBins(1) TEBins(end)]);
+xlim(PLOT_PREFS.TE_LIM);
+xlabel('TE'); ylabel('Counts');
+%title('With PIE selection');
+
+subplot(2,1,2);
+tauPlot = bar(SBins,tauHistPIE,1,'histc');
+set(tauPlot,'EdgeColor','k');
+set(tauPlot,'Facecolor','w');
+set(gca,'FontName','Helvetica');
+set(gca,'FontSize',14);
+%xlim([TEBins(1) TEBins(end)]);
+xlim(PLOT_PREFS.S_LIM);
+xlabel('tau'); ylabel('Counts');
+%title('Without PIE selection');
+if PREFS.COMMENT
+    legend(PREFS.DESC_LABEL);
+end;
+str = sprintf('../output/%s1D_TE_tau.eps', PREFS.DESC_LABEL); print('-depsc',str);
+if (PREFS.PLOT_1D_HIST == 1)
+    figure;
+else
+    clf;
+end;
+
+
+
+
+
 %%
 % =================================================================
 %   2D Histograms
