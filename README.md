@@ -15,4 +15,5 @@ Output
 - Photon counting histograms (PCH)
 - MCS traces (also called burst traces)
 - 1D histograms of TE, S, and tau
-- 2D histograms of TE-S and TE and tau (new)
+- 2D histograms of TE-S
+- 2D histograms of TE-tau (new)
