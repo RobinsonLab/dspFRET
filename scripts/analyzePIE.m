@@ -14,6 +14,8 @@
 %                       o maps for photon sorting into DD, DA, AA 
 %                       o maps for assigning photons to bins
 
+%   3   JMR     3/17/14 o Added 2D histograms of donor lifetime and TE
+
 % DESCRIPTION: 
 % This is the master file for reading in and processing single molecuele FRET data
 %
@@ -58,28 +60,32 @@ clc;
 % BEGIN
 
 % USER PREFERENCES 
-PREFS.GUI = 1; % 1 = true; 0 = false
+% this allows the user to override the defaults using the GUI
+PREFS.GUI = 0; % 1 = true; 0 = false
 
 % Render plots?
 PREFS.PLOT_VS_TIME = 1; % plot TCSPC vs (1) time & (0) channel #
-PREFS.COMMENT = 1; % add comments to graph. Supress for publication.
-PREFS.PLOT_PHOTON_COUNTING_HISTOGRAM = 0; % render the photon counting histograms
-PREFS.PLOT_BURST = 0;
-PREFS.PLOT_TCSPC = 0; %
-PREFS.PLOT_BURST_SEL = 0;
+PREFS.COMMENT = 0; % add comments to graph. Supress for publication.
+PREFS.PLOT_PHOTON_COUNTING_HISTOGRAM = 1; % render the photon counting histograms
+PREFS.PLOT_BURST = 1;
+PREFS.PLOT_TCSPC = 1; %
+PREFS.PLOT_BURST_SEL = 1;
 PREFS.PLOT_1D_HIST = 1; % 
 PREFS.VERBOSE = 1; % write out what is going on.
+PREFS.DESC_LABEL = '';
 
 % DEFAULT PARAMS
 PARAMS.INCLUDE_SCATTERING = 0; % includes scattering that is evident as the spike in the TCSPC histogram?
 PARAMS.BIN_TIME = 1.0; % in milliseconds
-PIE_MIN = 15;
+% these are the important ones
+PARAMS.PIE_MIN = 14; 
+PARAMS.NOISE_MIN = 9;
+% 
 PARAMS.PIE_MAX = 70;
-NOISE_MIN = 10;
 PARAMS.NOISE_MAX = 70;
 %GAMMA = 2.1; %for Troponin (Cy3-Atto655)
 % PARAMS.GAMMA = 1.15; % for DNA (Cy3-Alexa647)
-PARAMS.GAMMA = 1.0; 
+PARAMS.GAMMA = 0.40; % 0.3987 for AF546-Atto655 & atto550-atto655
 PARAMS.NOT_RED = 3; % this is very tight. Used to identify a donor-only species. Want to make sure that acceptor is definately not there!
 PARAMS.NOT_GREEN = 3; % this is very tight. Used to identify a acceptor-only species. Want to make sure that donor is definately not there!
 
@@ -87,8 +93,8 @@ PARAMS.NOT_GREEN = 3; % this is very tight. Used to identify a acceptor-only spe
 PLOT_PREFS.NUM_BINS = 41;
 PLOT_PREFS.TE_LIM = [0.0 1.0];
 PLOT_PREFS.S_LIM = [0.0 1.0];
-% start = 200000; % or whatever....
-PLOT_PREFS.START = 10;
+PLOT_PREFS.START = 20000; % or whatever....
+% PLOT_PREFS.START = 10;
 PLOT_PREFS.LEN = 3000;
 PLOT_PREFS.LEN = (PLOT_PREFS.LEN + 1); %makes the plots prettier.
 
@@ -102,7 +108,7 @@ if (PREFS.GUI == 1)
     [inFile.name, inFile.path]=uigetfile('*.pt3', 'T3 Mode data:');
 else
 % Set filename and pathname manually
-    inFile.name = 'D11A647(50pM PIE).pt3';
+    inFile.name = 'rAc-DA(500nM 1to20 S1 Ca).pt3';
     inFile.path = '../input/';
 end;
 inFile.base = inFile.name(1:length(inFile.name)-4);
@@ -218,6 +224,9 @@ display(PARAMS)
 %
 load 'timeGateFilters.mat' DDTimeGate DATimeGate AATimeGate; % these are from analyzeTimeGates.m
 
+% can edit the matrices then save using
+% save 'timeGateFilters.mat' DDTimeGate DATimeGate AATimeGate
+
 % If you think that time gating is a bad idea and you want to include
 % scattering then set PARAMS.INCLUDE_SCATTERING == 1
 
@@ -317,7 +326,7 @@ else % plot vs. channel
         clf;
     end;
 end;
-
+%%
 %
 % =================================================================
 %   MCS
@@ -363,6 +372,10 @@ AAlc = Alc(AAFilterPos); %note that AA has a seriously right-shifted tcal.
 %   myHist = histc(DDlc,chan);
 %   plot(chan,myHist);
 
+% Note that from now on, everything is done using DDgt, DAgt, AAgt, and
+% DDlc, DAlc, AAlc
+
+
 % >> assign events in DD, DA,AA to an MCS bins.
 maxTime = min([Dgt(end);Agt(end)]/1E6); % in milliseconds % divide by 60,000 to get minutes
 fprintf(1,'Experiment time: %i min\n',floor(maxTime/60000));
@@ -373,6 +386,9 @@ fprintf(1,'Experiment time: %i min\n',floor(maxTime/60000));
 [AAtmp, AAphotonMap, AAbinMapTmp]= calcMCS(AAgt, PARAMS.BIN_TIME, maxTime);
 
 % A useful measure of noise is the number of ms with zero photons detected
+
+% CalcMCS returns very useful maps
+% refer to the calcMSC() routine for details.
 
 % >> correct for possible differences in size of arrays XXtmp
 smallest = min([length(DDtmp), length(DAtmp), length(AAtmp)]);
@@ -399,19 +415,17 @@ diary off
 
 if (PREFS.PLOT_BURST == 1) % plot individual burst traces?
     figure;
-    start = 1000;
-    len = 2000;
     str = sprintf('Counts / %1.1f ms',PARAMS.BIN_TIME);
-    plotBurst1(PARAMS.BIN_TIME,DD,start,len,str); 
+    plotBurst1(PARAMS.BIN_TIME,DD,PLOT_PREFS.START,PLOT_PREFS.LEN,str); 
     title('DD');
     figure;
-    plotBurst1(PARAMS.BIN_TIME,DA,start,len,str);
+    plotBurst1(PARAMS.BIN_TIME,DA,PLOT_PREFS.START,PLOT_PREFS.LEN,str);
     title('DA');
     figure;
-    plotBurst1(PARAMS.BIN_TIME,AA,start,len,str);
+    plotBurst1(PARAMS.BIN_TIME,AA,PLOT_PREFS.START,PLOT_PREFS.LEN,str);
     title('AA');
 end;
-
+%%
 %
 % =================================================================
 %   PCH
@@ -555,7 +569,7 @@ notRedFilter = (AA <= PARAMS.NOT_RED) & (DA <= PARAMS.NOT_RED); % identifies sam
 greenFilter = ((DD+DA > PARAMS.NOISE_MIN) & (DD+DA < PARAMS.NOISE_MAX)); % burst selection. Fluorescence could come out of donor or acceptor
 notGreenFilter = (DD <= PARAMS.NOT_GREEN); % sample with no green counts
 
-greenAndRedFilter = redFilter & greenFilter; % this gives the FRET-quenched donors
+greenAndRedFilter = redFilter & greenFilter; % this gives the FRET-quenched donors; i.e. the PIE-selected photons
 greenOrRedFilter = redFilter | greenFilter; % unused
 greenAndNotRedFilter = greenFilter & notRedFilter; % this gives the donor-only population.
 redAndNotGreenFilter = redFilter & notGreenFilter; % this gives acceptor-only population.
@@ -568,12 +582,17 @@ greenOrRedFilterPos = find(greenOrRedFilter);
 greenAndNotRedFilterPos = find(greenAndNotRedFilter);
 % we have now assigned events
 
+% JMR notes 3/17/15
+% the MATLAB find() function gives the indices of all elements that are
+% TRUE
+% Example: find([1 1 0 0 1]) -> 1 2 5
+
 fprintf(1,'Total bursts: %i\n',length(greenFilterPos));
 fprintf(1,'Total PIE selected bursts: %i\n',length(greenAndRedFilterPos));
 fprintf(1,'Total Donor-only bursts: %i\n',length(greenAndNotRedFilterPos));
 
 
-
+%%
 % ------------------- Burst Traces ----------------------------------
 
 % >> without PIE filtering
@@ -596,6 +615,7 @@ end;
 subplot(2,1,1);
 %plotBurst2sel(tstep,DD,DA,pieFilter,start,len);
 plotBurst2sel(PARAMS.BIN_TIME,DD,DA,greenAndRedFilter,PLOT_PREFS);
+pbaspect([4.0 1 1]);
 title('Donor excitation');
 
 % set(h,'XTick',[])
@@ -603,9 +623,9 @@ title('Donor excitation');
 
 % bottom plot is plot of acceptor getting directly excited
 subplot(2,1,2); 
-plotBurst1sel(PARAMS.BIN_TIME,AA,redFilter,PLOT_PREFS);
+plotBurst1sel_b(PARAMS.BIN_TIME,AA,redFilter,PLOT_PREFS,2.0);
 title('Acceptor excitation');
-% pbaspect([4.0 1 1]);
+pbaspect([4.0 1 1]);
 
 str = sprintf('../output/%spieBurst.eps', PREFS.DESC_LABEL); print('-depsc',str);
 if (PREFS.PLOT_BURST_SEL == 1)
@@ -614,13 +634,13 @@ else
     clf;
 end;
 
-
+%%
 % =================================================================
-%   1D Histograms
+%   Calculate filters
 % =================================================================
 
 
-% >> 1D analysis with the PIE selection on.
+% Calculate TE and S for all bins. Do the selection later.
 F_D1 = PARAMS.GAMMA*DD + DA;
 F_D2 = DD + DA; 
 F_A = AA;
@@ -650,6 +670,42 @@ TEHistNotPIE = myHistc(fNTEPIE,TEBins); % DO-population
 SHistNotPIE = myHistc(fNSPIE,SBins);
 
 % assert sum(TEHistNotPIE) == sum(SHistNotPIE) == length(fNTEPIE) == T
+%%
+DPIECells = DDbinMap(greenAndRedFilterPos);
+for i=1:length(DPIECells)
+    tauD(i) = mean(DDlc(DPIECells{i})); % this gives mean tau in terms of channel
+end
+
+DNPIECells = DDbinMap(greenAndNotRedFilterPos);
+for i=1:length(DNPIECells)
+    tauD0(i) = mean(DDlc(DNPIECells{i})); % this gives mean tau in terms of channel
+end
+mtd = mean(tauD)
+mtd0 = mean(tauD0)
+
+% we are going to transform the tau's so that they appear on a scale from 0
+% to 1. The value '3' below is empirical. I started off with 2, which gives
+% the midpoint in the channel range, but the tau's were too bunched towards
+% 0. Note: doing things this way is similar to plotting tau/tau_D
+tau_max = (DDTimeGate(2)+DDTimeGate(1))/3;
+tauDT = (transpose(tauD)-DDTimeGate(1))/tau_max;
+tauHistPIE = myHistc(tauDT,SBins);
+
+% DPos = [DpCells{:}]; % Dp gives the index of all DD photons that were used to calculate PIE-filtered TE.
+% DD_tau = DDlc(DPos); % 
+% tauBins = 1:100;
+% 
+% bar(tauBins,tauHistPIE,1,'histc');
+% %
+% histogram(tauD)
+% hold on
+% histogram(tauD0,'FaceColor','r')
+% hold off
+% % [aav{:}]
+%%
+% =================================================================
+%   1D Histograms
+% =================================================================
 
 % >> Plot of TE
 figure(1),
@@ -679,7 +735,7 @@ xlim(PLOT_PREFS.TE_LIM);
 xlabel('TE'); ylabel('Counts');
 title('Without PIE selection');
 if PREFS.COMMENT
-    legend(DESC);
+    legend(PREFS.DESC_LABEL);
 end;
 str = sprintf('../output/%s1D_TE.eps', PREFS.DESC_LABEL); print('-depsc',str);
 if (PREFS.PLOT_1D_HIST == 1)
@@ -733,16 +789,29 @@ end;
 % PLOT_PREFS.CMAP = flipud(pink(256));
 % PLOT_PREFS.CMAP = flipud(bone(256));
 PLOT_PREFS.CMAP = jet(256);
+PLOT_PREFS.X_LABEL = 'TE';
+PLOT_PREFS.Y_LABEL = 'S';
 h2D = f2DHistPlot(@mainHist,TEBins,TEHist,SBins,SHist,fTE,fS,PREFS,PLOT_PREFS,'2D histogram','2DHist');
 
 % PLOT_PREFS.CMAP = jet(256);
+PLOT_PREFS.X_LABEL = 'TE';
+PLOT_PREFS.Y_LABEL = 'S';
 h2DL = f2DHistPlot(@mainHistLog,TEBins,TEHist,SBins,SHist,fTE,fS,PREFS,PLOT_PREFS,'2D histogram (Log)','2DHistLog');
 
 % PLOT_PREFS.CMAP = jet(256);
+PLOT_PREFS.X_LABEL = 'TE';
+PLOT_PREFS.Y_LABEL = 'S';
 h2DL = f2DHistPlot(@mainHist,TEBins,TEHistPIE,SBins,SHistPIE,fTEPIE,fSPIE,PREFS,PLOT_PREFS,'2D histogram with PIE selection','2DHistPIE');
 
 % this is the DO-populaiton
+PLOT_PREFS.X_LABEL = 'TE';
+PLOT_PREFS.Y_LABEL = 'S';
 h2DL = f2DHistPlot(@mainHist,TEBins,TEHistNotPIE,SBins,SHistNotPIE,fNTEPIE,fNSPIE,PREFS,PLOT_PREFS,'2D histogram zero peak selection','2DHistNotPIE');
+
+% PLOT_PREFS.CMAP = jet(256);
+PLOT_PREFS.X_LABEL = 'TE';
+PLOT_PREFS.Y_LABEL = 'tau';
+h2DL = f2DHistPlot(@mainHist,TEBins,TEHistPIE,SBins,tauHistPIE,fTEPIE,tauDT,PREFS,PLOT_PREFS,'2D tau-TE histogram with PIE selection','2D-tau-TE-HistPIE');
 
 
 %%
